@@ -19,7 +19,7 @@ rustdoc-args = ["--cfg", "docsrs"]
 workspace = true
 
 [dependencies]
-specta = { path = "../specta", features = ["derive", "uuid", "chrono"] }
+specta = { path = "../specta", features = ["derive", "uuid", "chrono", "serde_json"] }
 specta-serde = { path = "../specta-serde" }
 thiserror = "1.0"
 serde = { version = "1.0", features = ["derive"] }
@@ -29,6 +29,7 @@ insta = "1.42"
 trybuild = "1.0"
 uuid = "1.12.1"
 chrono = { version = "0.4.40", features = ["clock"] }
+serde_json = "1.0"
 
 [[example]]
 name = "basic_types"
@@ -53,3 +54,7 @@ path = "examples/string_enums.rs"
 [[example]]
 name = "comprehensive_demo"
 path = "examples/comprehensive_demo.rs"
+
+[[example]]
+name = "struct_naming_demo"
+path = "examples/struct_naming_demo.rs"

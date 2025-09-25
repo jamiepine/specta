@@ -32,6 +32,14 @@ pub enum Error {
     /// Invalid configuration.
     #[error("Configuration error: {0}")]
     Configuration(String),
+
+    /// Duplicate type names found during export.
+    #[error("Duplicate type names found: {0}")]
+    DuplicateNames(String),
+
+    /// Custom naming function failed.
+    #[error("Custom naming function failed: {0}")]
+    CustomNamingFailed(String),
 }
 
 /// Result type alias for Swift export operations.

@@ -4,8 +4,8 @@ use std::{borrow::Cow, path::Path};
 
 use specta::TypeCollection;
 
-use crate::error::{Error, Result};
-use crate::primitives::{export_type, is_duration_struct};
+use crate::error::Result;
+use crate::primitives::{export_type_with_name, is_duration_struct};
 
 /// Swift language exporter.
 #[derive(Debug, Clone)]
@@ -24,6 +24,12 @@ pub struct Swift {
     pub protocols: Vec<Cow<'static, str>>,
     /// Enable Serde validation.
     pub serde: bool,
+    /// Struct naming strategy for enum variants.
+    pub struct_naming: StructNamingStrategy,
+    /// Generate public initializers for structs.
+    pub generate_initializers: bool,
+    /// Strategy for handling duplicate type names.
+    pub duplicate_name_strategy: DuplicateNameStrategy,
 }
 
 /// Indentation style for generated Swift code.
@@ -73,6 +79,36 @@ pub enum OptionalStyle {
     Optional,
 }
 
+/// Struct naming strategy for enum variants.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum StructNamingStrategy {
+    /// Auto-rename structs with enum prefix (default).
+    /// Example: `Event::User` → `EventUserData`
+    #[default]
+    AutoRename,
+    /// Keep original struct names without renaming.
+    /// Example: `Event::User` → `UserData`
+    KeepOriginal,
+}
+
+/// Strategy for handling duplicate type names during export.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub enum DuplicateNameStrategy {
+    /// Emit warnings but continue with last definition (default).
+    /// This maintains backward compatibility while alerting users to potential issues.
+    #[default]
+    Warn,
+    /// Fail the build with an error when duplicates are found.
+    /// This prevents silent overwrites that can cause runtime failures.
+    Error,
+    /// Use qualified names automatically based on module paths.
+    /// Example: `LibraryInfo` from `core::ops::libraries` becomes `CoreOpsLibrariesLibraryInfo`.
+    Qualify,
+    /// Use a custom naming function to resolve duplicates.
+    /// The function receives the NamedDataType and should return a unique name.
+    Custom(fn(&specta::datatype::NamedDataType) -> String),
+}
+
 impl Default for Swift {
     fn default() -> Self {
         Self {
@@ -83,6 +119,9 @@ impl Default for Swift {
             optionals: OptionalStyle::default(),
             protocols: vec![],
             serde: false,
+            struct_naming: StructNamingStrategy::default(),
+            generate_initializers: false,
+            duplicate_name_strategy: DuplicateNameStrategy::default(),
         }
     }
 }
@@ -135,6 +174,18 @@ impl Swift {
         self
     }
 
+    /// Configure struct naming strategy for enum variants.
+    pub fn struct_naming(mut self, strategy: StructNamingStrategy) -> Self {
+        self.struct_naming = strategy;
+        self
+    }
+
+    /// Configure how to handle duplicate type names during export.
+    pub fn duplicate_name_strategy(mut self, strategy: DuplicateNameStrategy) -> Self {
+        self.duplicate_name_strategy = strategy;
+        self
+    }
+
     /// Export types to a Swift string.
     pub fn export(&self, types: &TypeCollection) -> Result<String> {
         if self.serde {
@@ -164,9 +215,16 @@ impl Swift {
             result.push_str(&generate_duration_helper());
         }
 
-        // Export types
-        for ndt in types.into_sorted_iter() {
-            result.push_str(&export_type(self, types, &ndt)?);
+        // Check if we need to inject JsonValue helper
+        if needs_JsonValue_helper(types) {
+            result.push_str(&generate_JsonValue_helper());
+        }
+
+        // Export types - handle duplicates according to strategy
+        let named_types = handle_duplicate_names(types, &self.duplicate_name_strategy)?;
+
+        for (swift_name, ndt) in named_types {
+            result.push_str(&export_type_with_name(self, types, &ndt, &swift_name)?);
             result.push_str("\n\n");
         }
 
@@ -198,20 +256,22 @@ impl NamingConvention {
 
     /// Convert a string to the appropriate naming convention for fields.
     pub fn convert_field(&self, name: &str) -> String {
-        match self {
+        let converted = match self {
             Self::PascalCase => self.to_camel_case(name), // Fields should be camelCase even with PascalCase
             Self::CamelCase => self.to_camel_case(name),
             Self::SnakeCase => self.to_snake_case(name),
-        }
+        };
+        escape_reserved_keywords(&converted)
     }
 
     /// Convert a string to the appropriate naming convention for enum cases.
     pub fn convert_enum_case(&self, name: &str) -> String {
-        match self {
+        let converted = match self {
             Self::PascalCase => self.to_camel_case(name), // Enum cases should be camelCase
             Self::CamelCase => self.to_camel_case(name),
             Self::SnakeCase => self.to_snake_case(name),
-        }
+        };
+        escape_reserved_keywords(&converted)
     }
 
     fn to_camel_case(&self, name: &str) -> String {
@@ -332,4 +392,311 @@ fn generate_duration_helper() -> String {
         + "    }\n"
         + "}\n\n"
         + "// MARK: - Generated Types\n\n"
+}
+
+/// Check if a JsonValue type is the built-in serde_json::Value type
+fn is_builtin_JsonValue(ndt: &specta::datatype::NamedDataType) -> bool {
+    // Consider it built-in if it's from serde_json crate OR from specta's legacy_impls
+    ndt.module_path().contains("serde_json") || ndt.module_path().contains("legacy_impls")
+}
+
+/// Check if we need to generate the JsonValue helper
+fn needs_JsonValue_helper(types: &TypeCollection) -> bool {
+    for ndt in types.into_sorted_iter() {
+        if ndt.name() == "JsonValue" && is_builtin_JsonValue(&ndt) {
+            return true;
+        }
+        // Also check if any struct fields contain built-in JsonValue
+        if let specta::datatype::DataType::Struct(s) = ndt.ty() {
+            if let specta::datatype::Fields::Named(fields) = s.fields() {
+                for (_, field) in fields.fields() {
+                    if let Some(ty) = field.ty() {
+                        if let specta::datatype::DataType::Reference(r) = ty {
+                            if let Some(referenced_ndt) = types.get(r.sid()) {
+                                if referenced_ndt.name() == "JsonValue"
+                                    && is_builtin_JsonValue(referenced_ndt)
+                                {
+                                    return true;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    false
+}
+
+/// Generate the JsonValue helper enum
+fn generate_JsonValue_helper() -> String {
+    "// MARK: - JSON Value Helper\n".to_string()
+        + "/// Helper enum to represent arbitrary JSON values\n"
+        + "public indirect enum JsonValue: Codable {\n"
+        + "    case null\n"
+        + "    case bool(Bool)\n"
+        + "    case number(Double)\n"
+        + "    case string(String)\n"
+        + "    case array([JsonValue])\n"
+        + "    case object([String: JsonValue])\n"
+        + "    \n"
+        + "    public init(from decoder: Decoder) throws {\n"
+        + "        let container = try decoder.singleValueContainer()\n"
+        + "        \n"
+        + "        if container.decodeNil() {\n"
+        + "            self = .null\n"
+        + "        } else if let bool = try? container.decode(Bool.self) {\n"
+        + "            self = .bool(bool)\n"
+        + "        } else if let int = try? container.decode(Int.self) {\n"
+        + "            self = .number(Double(int))\n"
+        + "        } else if let double = try? container.decode(Double.self) {\n"
+        + "            self = .number(double)\n"
+        + "        } else if let string = try? container.decode(String.self) {\n"
+        + "            self = .string(string)\n"
+        + "        } else if let array = try? container.decode([JsonValue].self) {\n"
+        + "            self = .array(array)\n"
+        + "        } else if let object = try? container.decode([String: JsonValue].self) {\n"
+        + "            self = .object(object)\n"
+        + "        } else {\n"
+        + "            throw DecodingError.typeMismatch(JsonValue.self, DecodingError.Context(codingPath: decoder.codingPath, debugDescription: \"Invalid JsonValue\"))\n"
+        + "        }\n"
+        + "    }\n"
+        + "    \n"
+        + "    public func encode(to encoder: Encoder) throws {\n"
+        + "        var container = encoder.singleValueContainer()\n"
+        + "        \n"
+        + "        switch self {\n"
+        + "        case .null:\n"
+        + "            try container.encodeNil()\n"
+        + "        case .bool(let bool):\n"
+        + "            try container.encode(bool)\n"
+        + "        case .number(let double):\n"
+        + "            try container.encode(double)\n"
+        + "        case .string(let string):\n"
+        + "            try container.encode(string)\n"
+        + "        case .array(let array):\n"
+        + "            try container.encode(array)\n"
+        + "        case .object(let object):\n"
+        + "            try container.encode(object)\n"
+        + "        }\n"
+        + "    }\n"
+        + "    \n"
+        + "    // MARK: - Convenience Constructors\n"
+        + "    public static func nullValue() -> JsonValue { .null }\n"
+        + "    public static func boolValue(_ value: Bool) -> JsonValue { .bool(value) }\n"
+        + "    public static func numberValue(_ value: Double) -> JsonValue { .number(value) }\n"
+        + "    public static func numberValue(_ value: Int) -> JsonValue { .number(Double(value)) }\n"
+        + "    public static func stringValue(_ value: String) -> JsonValue { .string(value) }\n"
+        + "    public static func arrayValue(_ value: [JsonValue]) -> JsonValue { .array(value) }\n"
+        + "    public static func objectValue(_ value: [String: JsonValue]) -> JsonValue { .object(value) }\n"
+        + "}\n\n"
+        + "// MARK: - Generated Types\n\n"
+}
+
+/// Escape Swift reserved keywords by wrapping them in backticks
+fn escape_reserved_keywords(name: &str) -> String {
+    const RESERVED_KEYWORDS: &[&str] = &[
+        "actor",
+        "as",
+        "await",
+        "break",
+        "case",
+        "catch",
+        "class",
+        "continue",
+        "convenience",
+        "default",
+        "defer",
+        "deinit",
+        "do",
+        "else",
+        "enum",
+        "extension",
+        "fallthrough",
+        "fileprivate",
+        "for",
+        "func",
+        "guard",
+        "if",
+        "import",
+        "in",
+        "init",
+        "inout",
+        "internal",
+        "is",
+        "let",
+        "mutating",
+        "nonmutating",
+        "open",
+        "operator",
+        "override",
+        "private",
+        "protocol",
+        "public",
+        "repeat",
+        "required",
+        "return",
+        "self",
+        "static",
+        "struct",
+        "subscript",
+        "super",
+        "switch",
+        "throw",
+        "throws",
+        "try",
+        "typealias",
+        "unowned",
+        "var",
+        "weak",
+        "where",
+        "while",
+        "yield",
+    ];
+
+    if RESERVED_KEYWORDS.contains(&name) {
+        format!("`{}`", name)
+    } else {
+        name.to_string()
+    }
+}
+
+/// Generate a qualified name based on module path to avoid conflicts.
+fn generate_qualified_name(ndt: &specta::datatype::NamedDataType) -> String {
+    let module_parts: Vec<&str> = ndt.module_path().split("::").collect();
+
+    if module_parts.len() <= 1 {
+        return ndt.name().to_string();
+    }
+
+    // Filter out common test module names and take meaningful parts
+    let meaningful_parts: Vec<&str> = module_parts
+        .iter()
+        .filter(|part| !matches!(**part, "tests" | "duplicate_names" | "lib"))
+        .cloned()
+        .collect();
+
+    if meaningful_parts.is_empty() {
+        return ndt.name().to_string();
+    }
+
+    // Take the last 2-3 meaningful parts of the module path
+    let parts_to_use = if meaningful_parts.len() >= 3 {
+        &meaningful_parts[meaningful_parts.len() - 3..]
+    } else {
+        &meaningful_parts[..]
+    };
+
+    // Convert to PascalCase and combine with the type name
+    let qualified_prefix = parts_to_use
+        .iter()
+        .map(|part| {
+            // Convert snake_case to PascalCase
+            part.split('_')
+                .map(|word| {
+                    let mut chars = word.chars();
+                    match chars.next() {
+                        None => String::new(),
+                        Some(first) => first.to_uppercase().chain(chars).collect(),
+                    }
+                })
+                .collect::<String>()
+        })
+        .collect::<String>();
+
+    format!("{}{}", qualified_prefix, ndt.name())
+}
+
+/// Check for duplicate names and handle them according to the strategy.
+fn handle_duplicate_names(
+    types: &TypeCollection,
+    strategy: &DuplicateNameStrategy,
+) -> Result<Vec<(String, specta::datatype::NamedDataType)>> {
+    let mut name_to_types: std::collections::HashMap<String, Vec<specta::datatype::NamedDataType>> =
+        std::collections::HashMap::new();
+
+    // Group types by name
+    for ndt in types.into_sorted_iter() {
+        if ndt.name() == "JsonValue" && is_builtin_JsonValue(&ndt) && needs_JsonValue_helper(types)
+        {
+            continue;
+        }
+
+        name_to_types
+            .entry(ndt.name().to_string())
+            .or_insert_with(Vec::new)
+            .push(ndt);
+    }
+
+    let mut result = Vec::new();
+    let mut warnings = Vec::new();
+
+    for (name, type_list) in name_to_types {
+        if type_list.len() == 1 {
+            // No duplicates, use original name
+            result.push((name, type_list.into_iter().next().unwrap()));
+        } else {
+            // Handle duplicates based on strategy
+            match strategy {
+                DuplicateNameStrategy::Warn => {
+                    // Generate warning message
+                    let warning_msg = format!(
+                        "⚠️  WARNING: Duplicate struct name '{}' found:\n{}",
+                        name,
+                        type_list
+                            .iter()
+                            .map(|ndt| format!(
+                                "   - {}:{}",
+                                ndt.module_path(),
+                                ndt.location().line()
+                            ))
+                            .collect::<Vec<_>>()
+                            .join("\n")
+                    );
+                    warnings.push(warning_msg);
+
+                    // Use the last definition (maintains backward compatibility)
+                    let last_type = type_list.into_iter().last().unwrap();
+                    result.push((name, last_type));
+                }
+                DuplicateNameStrategy::Error => {
+                    let error_msg = format!(
+                        "Duplicate type names found for '{}':\n{}",
+                        name,
+                        type_list
+                            .iter()
+                            .map(|ndt| format!(
+                                "   - {}:{}",
+                                ndt.module_path(),
+                                ndt.location().line()
+                            ))
+                            .collect::<Vec<_>>()
+                            .join("\n")
+                    );
+                    return Err(crate::error::Error::DuplicateNames(error_msg));
+                }
+                DuplicateNameStrategy::Qualify => {
+                    // Generate qualified names for all duplicates
+                    for ndt in type_list {
+                        let qualified_name = generate_qualified_name(&ndt);
+                        result.push((qualified_name, ndt));
+                    }
+                }
+                DuplicateNameStrategy::Custom(naming_fn) => {
+                    // Use custom naming function for all duplicates
+                    for ndt in type_list {
+                        let custom_name = (naming_fn)(&ndt);
+                        result.push((custom_name, ndt));
+                    }
+                }
+            }
+        }
+    }
+
+    // Print warnings to stderr if any
+    if !warnings.is_empty() {
+        eprintln!("{}", warnings.join("\n\n"));
+    }
+
+    Ok(result)
 }

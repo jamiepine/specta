@@ -21,6 +21,7 @@ A Rust crate for exporting Rust types to Swift, built on top of [Specta](https:/
 - 🔧 **Custom Codable** - Automatic generation of custom Codable implementations
 - 🎨 **Protocol Conformance** - Support for additional Swift protocols
 - 📁 **File Export** - Direct export to Swift files with custom headers
+- ⚠️ **Duplicate Name Handling** - Robust strategies for handling duplicate type names
 
 ## Quick Start
 
@@ -245,6 +246,113 @@ let swift = Swift::new()
 let swift = Swift::new()
     .with_serde()  // Adds import Codable and validation
     .add_protocol("CustomDebugStringConvertible");
+```
+
+### Struct Naming Strategy
+
+By default, structs generated from enum variants are prefixed with the enum name to avoid naming conflicts:
+
+```rust
+use specta_swift::{Swift, StructNamingStrategy};
+
+// Default: AutoRename (enum name prefix)
+let swift = Swift::default();
+// ApiResponse::Success → ApiResponseSuccessData
+
+// KeepOriginal: No enum name prefix
+let swift = Swift::new().struct_naming(StructNamingStrategy::KeepOriginal);
+// ApiResponse::Success → SuccessData
+```
+
+**Example:**
+
+```rust
+#[derive(Type)]
+enum ApiResponse {
+    Success { data: String, status: u16 },
+    Error { message: String, code: u32 },
+}
+
+// AutoRename (default):
+// - ApiResponseSuccessData
+// - ApiResponseErrorData
+
+// KeepOriginal:
+// - SuccessData
+// - ErrorData
+```
+
+### Duplicate Name Handling
+
+Specta-Swift now provides robust handling for duplicate type names, which can occur when multiple Rust modules define types with the same name. This prevents silent overwrites that could cause runtime failures.
+
+```rust
+use specta_swift::{Swift, DuplicateNameStrategy};
+
+// Default: Warn but continue (backward compatible)
+let swift = Swift::default();
+
+// Fail the build when duplicates are found
+let swift = Swift::new()
+    .duplicate_name_strategy(DuplicateNameStrategy::Error);
+
+// Automatically qualify names based on module paths
+let swift = Swift::new()
+    .duplicate_name_strategy(DuplicateNameStrategy::Qualify);
+
+// Use a custom naming function
+let swift = Swift::new()
+    .duplicate_name_strategy(DuplicateNameStrategy::Custom(|ndt| {
+        // Custom logic to generate unique names
+        format!("{}_{}", ndt.module_path().split("::").last().unwrap(), ndt.name())
+    }));
+```
+
+**Strategies:**
+
+- **`Warn` (default)**: Emits warnings to stderr but continues with the last definition encountered. Maintains backward compatibility.
+- **`Error`**: Fails the build with a clear error message when duplicates are found. Prevents silent overwrites.
+- **`Qualify`**: Automatically generates qualified names based on module paths (e.g., `LibraryInfo` from `core::ops::libraries` becomes `CoreOpsLibrariesLibraryInfo`).
+- **`Custom`**: Uses a user-provided function to generate unique names for each duplicate.
+
+**Example - Spacedrive Scenario:**
+
+```rust
+// In libraries/list/output.rs
+#[derive(Type)]
+struct LibraryInfo {
+    id: u32,
+    name: String,
+    path: String,        // ← This field
+    stats: u32,
+}
+
+// In core/status/output.rs
+#[derive(Type)]
+struct LibraryInfo {
+    id: u32,
+    name: String,
+    is_active: bool,     // ← Different fields
+    location_count: u32,
+}
+```
+
+With `DuplicateNameStrategy::Qualify`, this generates:
+
+```swift
+public struct LibrariesListOutputLibraryInfo: Codable {
+    let id: UInt32
+    let name: String
+    let path: String      // ← Preserved
+    let stats: UInt32
+}
+
+public struct CoreStatusOutputLibraryInfo: Codable {
+    let id: UInt32
+    let name: String
+    let isActive: Bool    // ← Also preserved
+    let locationCount: UInt32
+}
 ```
 
 ## Type Mapping
