@@ -29,7 +29,7 @@ fn test_enum_variant_struct_coding_keys() {
     println!("Generated Swift code:\n{}", result);
 
     // Should generate enum variant structs with CodingKeys
-    assert!(result.contains("public struct JobEventStarted: Codable"));
+    assert!(result.contains("public struct JobEventStartedData: Codable"));
     assert!(result.contains("public let jobId: String"));
     assert!(result.contains("case jobId = \"job_id\""));
     assert!(result.contains("case jobType = \"job_type\""));

@@ -31,14 +31,14 @@ fn test_enum_struct_variants_auto_rename() {
     println!("Generated Swift code:\n{}", result);
 
     // Should generate separate structs for each variant
-    assert!(result.contains("public struct TaskStatusInProgress: Codable"));
-    assert!(result.contains("public struct TaskStatusCompleted: Codable"));
-    assert!(result.contains("public struct TaskStatusFailed: Codable"));
+    assert!(result.contains("public struct TaskStatusInProgressData: Codable"));
+    assert!(result.contains("public struct TaskStatusCompletedData: Codable"));
+    assert!(result.contains("public struct TaskStatusFailedData: Codable"));
 
     // Enum should reference the structs
-    assert!(result.contains("case inProgress(TaskStatusInProgress)"));
-    assert!(result.contains("case completed(TaskStatusCompleted)"));
-    assert!(result.contains("case failed(TaskStatusFailed)"));
+    assert!(result.contains("case inProgress(TaskStatusInProgressData)"));
+    assert!(result.contains("case completed(TaskStatusCompletedData)"));
+    assert!(result.contains("case failed(TaskStatusFailedData)"));
 }
 
 #[test]
@@ -54,12 +54,12 @@ fn test_enum_struct_variants_keep_original() {
     println!("Generated Swift code:\n{}", result);
 
     // Should generate separate structs with original names
-    assert!(result.contains("public struct InProgress: Codable"));
-    assert!(result.contains("public struct Completed: Codable"));
-    assert!(result.contains("public struct Failed: Codable"));
+    assert!(result.contains("public struct InProgressData: Codable"));
+    assert!(result.contains("public struct CompletedData: Codable"));
+    assert!(result.contains("public struct FailedData: Codable"));
 
     // Enum should reference the structs
-    assert!(result.contains("case inProgress(InProgress)"));
-    assert!(result.contains("case completed(Completed)"));
-    assert!(result.contains("case failed(Failed)"));
+    assert!(result.contains("case inProgress(InProgressData)"));
+    assert!(result.contains("case completed(CompletedData)"));
+    assert!(result.contains("case failed(FailedData)"));
 }

@@ -166,7 +166,8 @@ pub fn export_type_with_name(
 
                 for (variant_name, _variant) in e.variants() {
                     let swift_variant_name = swift.naming.convert_enum_case(variant_name);
-                    let raw_value = generate_string_enum_raw_value(variant_name, swift.naming);
+                    let raw_value =
+                        generate_raw_value(variant_name, e.repr().and_then(|r| r.rename_all()));
                     result.push_str(&format!(
                         "    case {} = \"{}\"\n",
                         swift_variant_name, raw_value
@@ -233,14 +234,8 @@ pub fn export_type_with_name(
                                 result.push_str(&format!("    case {}\n", swift_variant_name));
                             } else {
                                 // Generate a struct for this variant
-                                let struct_name = match swift.struct_naming {
-                                    crate::swift::StructNamingStrategy::AutoRename => {
-                                        format!("{}{}", name, swift.naming.convert(variant_name))
-                                    }
-                                    crate::swift::StructNamingStrategy::KeepOriginal => {
-                                        swift.naming.convert(variant_name)
-                                    }
-                                };
+                                let struct_name =
+                                    generate_variant_struct_name(swift, &name, variant_name);
 
                                 result.push_str(&format!(
                                     "    case {}({})\n",
@@ -881,9 +876,11 @@ fn generate_enum_structs(
 fn generate_variant_struct_name(swift: &Swift, enum_name: &str, variant_name: &str) -> String {
     match swift.struct_naming {
         crate::swift::StructNamingStrategy::AutoRename => {
-            format!("{}{}", enum_name, swift.naming.convert(variant_name))
+            format!("{}{}Data", enum_name, swift.naming.convert(variant_name))
         }
-        crate::swift::StructNamingStrategy::KeepOriginal => swift.naming.convert(variant_name),
+        crate::swift::StructNamingStrategy::KeepOriginal => {
+            format!("{}Data", swift.naming.convert(variant_name))
+        }
     }
 }
 
@@ -1427,14 +1424,7 @@ fn generate_enum_variant_structs(
     for (variant_name, variant) in e.variants() {
         if let specta::datatype::Fields::Named(fields) = variant.fields() {
             if !fields.fields().is_empty() {
-                let struct_name = match swift.struct_naming {
-                    crate::swift::StructNamingStrategy::AutoRename => {
-                        format!("{}{}", enum_name, swift.naming.convert(variant_name))
-                    }
-                    crate::swift::StructNamingStrategy::KeepOriginal => {
-                        swift.naming.convert(variant_name)
-                    }
-                };
+                let struct_name = generate_variant_struct_name(swift, enum_name, variant_name);
 
                 result.push_str(&format!("public struct {}: Codable {{\n", struct_name));
 
