@@ -1007,15 +1007,15 @@ fn generate_enum_codable_impl(
 
     // Generate init(from decoder:)
     result.push_str("    public init(from decoder: Decoder) throws {\n");
-    result.push_str("        let container = try decoder.container(keyedBy: CodingKeys.self)\n");
-    result.push_str("        \n");
-    result.push_str("        if container.allKeys.count != 1 {\n");
-    result.push_str("            throw DecodingError.dataCorrupted(\n");
-    result.push_str("                DecodingError.Context(codingPath: decoder.codingPath, debugDescription: \"Invalid number of keys found, expected one.\")\n");
-    result.push_str("            )\n");
-    result.push_str("        }\n\n");
-    result.push_str("        let key = container.allKeys.first!\n");
-    result.push_str("        switch key {\n");
+    result.push_str(
+        "        // Try externally-tagged format first (e.g., {\"WaitingForConnection\": null})\n",
+    );
+    result.push_str(
+        "        if let container = try? decoder.container(keyedBy: CodingKeys.self) {\n",
+    );
+    result.push_str("            if container.allKeys.count == 1 {\n");
+    result.push_str("                let key = container.allKeys.first!\n");
+    result.push_str("                switch key {\n");
 
     for (original_variant_name, variant) in e.variants() {
         if variant.skip() {
@@ -1026,22 +1026,30 @@ fn generate_enum_codable_impl(
 
         match variant.fields() {
             specta::datatype::Fields::Unit => {
-                result.push_str(&format!("        case .{}:\n", swift_case_name));
-                result.push_str(&format!("            self = .{}\n", swift_case_name));
+                result.push_str(&format!("                case .{}:\n", swift_case_name));
+                result.push_str(&format!(
+                    "                    self = .{}\n",
+                    swift_case_name
+                ));
+                result.push_str("                    return\n");
             }
             specta::datatype::Fields::Unnamed(fields) => {
                 if fields.fields().is_empty() {
-                    result.push_str(&format!("        case .{}:\n", swift_case_name));
-                    result.push_str(&format!("            self = .{}\n", swift_case_name));
+                    result.push_str(&format!("                case .{}:\n", swift_case_name));
+                    result.push_str(&format!(
+                        "                    self = .{}\n",
+                        swift_case_name
+                    ));
+                    result.push_str("                    return\n");
                 } else {
                     // For tuple variants, decode as array
-                    result.push_str(&format!("        case .{}:\n", swift_case_name));
+                    result.push_str(&format!("                case .{}:\n", swift_case_name));
                     result.push_str(&format!(
-                        "            // TODO: Implement tuple variant decoding for {}\n",
+                        "                    // TODO: Implement tuple variant decoding for {}\n",
                         swift_case_name
                     ));
                     result.push_str(
-                        "            fatalError(\"Tuple variant decoding not implemented\")\n",
+                        "                    fatalError(\"Tuple variant decoding not implemented\")\n",
                     );
                 }
             }
@@ -1049,17 +1057,80 @@ fn generate_enum_codable_impl(
                 let struct_name =
                     generate_variant_struct_name(swift, enum_name, original_variant_name);
 
-                result.push_str(&format!("        case .{}:\n", swift_case_name));
+                result.push_str(&format!("                case .{}:\n", swift_case_name));
                 result.push_str(&format!(
-                    "            let data = try container.decode({}.self, forKey: .{})\n",
+                    "                    let data = try container.decode({}.self, forKey: .{})\n",
                     struct_name, swift_case_name
                 ));
-                result.push_str(&format!("            self = .{}(data)\n", swift_case_name));
+                result.push_str(&format!(
+                    "                    self = .{}(data)\n",
+                    swift_case_name
+                ));
+                result.push_str("                    return\n");
             }
         }
     }
 
+    result.push_str("                }\n");
+    result.push_str("                return\n");
+    result.push_str("            }\n");
     result.push_str("        }\n");
+    result.push_str("        \n");
+    result.push_str(
+        "        // Fallback: try decoding as plain string for unit variants (serde default)\n",
+    );
+    result.push_str("        if let stringContainer = try? decoder.singleValueContainer() {\n");
+    result.push_str(
+        "            if let variantString = try? stringContainer.decode(String.self) {\n",
+    );
+    result.push_str("                switch variantString {\n");
+
+    // Generate string fallback cases for unit variants only
+    for (original_variant_name, variant) in e.variants() {
+        if variant.skip() {
+            continue;
+        }
+
+        let swift_case_name = swift.naming.convert_enum_case(original_variant_name);
+
+        match variant.fields() {
+            specta::datatype::Fields::Unit => {
+                result.push_str(&format!(
+                    "                case \"{}\":\n",
+                    original_variant_name
+                ));
+                result.push_str(&format!(
+                    "                    self = .{}\n",
+                    swift_case_name
+                ));
+                result.push_str("                    return\n");
+            }
+            specta::datatype::Fields::Unnamed(fields) if fields.fields().is_empty() => {
+                result.push_str(&format!(
+                    "                case \"{}\":\n",
+                    original_variant_name
+                ));
+                result.push_str(&format!(
+                    "                    self = .{}\n",
+                    swift_case_name
+                ));
+                result.push_str("                    return\n");
+            }
+            _ => {
+                // Struct/tuple variants can't be decoded from strings
+            }
+        }
+    }
+
+    result.push_str("                default:\n");
+    result.push_str("                    break\n");
+    result.push_str("                }\n");
+    result.push_str("            }\n");
+    result.push_str("        }\n");
+    result.push_str("        \n");
+    result.push_str("        throw DecodingError.dataCorrupted(\n");
+    result.push_str("            DecodingError.Context(codingPath: decoder.codingPath, debugDescription: \"Could not decode enum - expected externally-tagged object or string for unit variants\")\n");
+    result.push_str("        )\n");
     result.push_str("    }\n\n");
 
     // Generate encode(to encoder:)
