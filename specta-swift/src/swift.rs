@@ -699,5 +699,8 @@ fn handle_duplicate_names(
         eprintln!("{}", warnings.join("\n\n"));
     }
 
+    // Sort by name for deterministic output
+    result.sort_by(|(name_a, _), (name_b, _)| name_a.cmp(name_b));
+
     Ok(result)
 }
