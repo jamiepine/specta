@@ -2,13 +2,17 @@
 
 use std::borrow::Cow;
 
-use specta::{
-    datatype::{DataType, Primitive},
-    SpectaID, TypeCollection,
-};
+use specta::{datatype::DataType, SpectaID, TypeCollection};
 
+use crate::datatype::primitives::{literal_to_swift, primitive_to_swift};
 use crate::error::{Error, Result};
+use crate::naming::rename_rules::{generate_raw_value, generate_string_enum_raw_value};
+use crate::special_types::{is_serde_json_number_enum, is_special_std_type};
 use crate::swift::Swift;
+use crate::utils::validation::is_recursive_type_reference;
+
+// Re-export for other modules
+pub use crate::special_types::is_duration_struct;
 
 /// Export a single type to Swift with a custom name.
 pub fn export_type_with_name(
@@ -331,102 +335,7 @@ pub fn datatype_to_swift(
     }
 }
 
-/// Check if a struct is a Duration by examining its fields
-pub fn is_duration_struct(s: &specta::datatype::Struct) -> bool {
-    match s.fields() {
-        specta::datatype::Fields::Named(fields) => {
-            let field_names: Vec<String> = fields
-                .fields()
-                .iter()
-                .map(|(name, _)| name.to_string())
-                .collect();
-            // Duration has exactly two fields: "secs" (u64) and "nanos" (u32)
-            field_names.len() == 2
-                && field_names.contains(&"secs".to_string())
-                && field_names.contains(&"nanos".to_string())
-        }
-        _ => false,
-    }
-}
-
-/// Check if a type is a special standard library type that needs special handling
-fn is_special_std_type(types: &TypeCollection, sid: Option<SpectaID>) -> Option<String> {
-    if let Some(sid) = sid {
-        if let Some(ndt) = types.get(sid) {
-            // Check for std::time::Duration
-            if ndt.name() == "Duration" {
-                return Some("RustDuration".to_string());
-            }
-            // Check for std::time::SystemTime
-            if ndt.name() == "SystemTime" {
-                return Some("Date".to_string());
-            }
-            // Check for serde_json::Number
-            if ndt.name() == "Number" {
-                return Some("Double".to_string());
-            }
-            // Check for serde_json::Value (mapped as JsonValue in Specta)
-            if ndt.name() == "JsonValue" {
-                return Some("JsonValue".to_string());
-            }
-        }
-    }
-    None
-}
-
-/// Convert primitive types to Swift.
-fn primitive_to_swift(primitive: &Primitive) -> Result<String> {
-    Ok(match primitive {
-        Primitive::i8 => "Int8".to_string(),
-        Primitive::i16 => "Int16".to_string(),
-        Primitive::i32 => "Int32".to_string(),
-        Primitive::i64 => "Int64".to_string(),
-        Primitive::isize => "Int".to_string(),
-        Primitive::u8 => "UInt8".to_string(),
-        Primitive::u16 => "UInt16".to_string(),
-        Primitive::u32 => "UInt32".to_string(),
-        Primitive::u64 => "UInt64".to_string(),
-        Primitive::usize => "UInt".to_string(),
-        Primitive::f32 => "Float".to_string(),
-        Primitive::f64 => "Double".to_string(),
-        Primitive::bool => "Bool".to_string(),
-        Primitive::char => "Character".to_string(),
-        Primitive::String => "String".to_string(),
-        Primitive::i128 | Primitive::u128 => {
-            return Err(Error::UnsupportedType(
-                "Swift does not support 128-bit integers".to_string(),
-            ));
-        }
-        Primitive::f16 => {
-            return Err(Error::UnsupportedType(
-                "Swift does not support f16".to_string(),
-            ));
-        }
-    })
-}
-
-/// Convert literal types to Swift.
-fn literal_to_swift(literal: &specta::datatype::Literal) -> Result<String> {
-    Ok(match literal {
-        specta::datatype::Literal::i8(v) => v.to_string(),
-        specta::datatype::Literal::i16(v) => v.to_string(),
-        specta::datatype::Literal::i32(v) => v.to_string(),
-        specta::datatype::Literal::u8(v) => v.to_string(),
-        specta::datatype::Literal::u16(v) => v.to_string(),
-        specta::datatype::Literal::u32(v) => v.to_string(),
-        specta::datatype::Literal::f32(v) => v.to_string(),
-        specta::datatype::Literal::f64(v) => v.to_string(),
-        specta::datatype::Literal::bool(v) => v.to_string(),
-        specta::datatype::Literal::String(s) => format!("\"{}\"", s),
-        specta::datatype::Literal::char(c) => format!("\"{}\"", c),
-        specta::datatype::Literal::None => "nil".to_string(),
-        _ => {
-            return Err(Error::UnsupportedType(
-                "Unsupported literal type".to_string(),
-            ))
-        }
-    })
-}
+// Special type functions now imported from special_types module
 
 /// Convert list types to Swift arrays.
 fn list_to_swift(
@@ -434,8 +343,9 @@ fn list_to_swift(
     types: &TypeCollection,
     list: &specta::datatype::List,
 ) -> Result<String> {
-    let element_type = datatype_to_swift(swift, types, list.ty(), vec![], false, None)?;
-    Ok(format!("[{}]", element_type))
+    crate::datatype::collections::list_to_swift(list, |ty| {
+        datatype_to_swift(swift, types, ty, vec![], false, None)
+    })
 }
 
 /// Convert map types to Swift dictionaries.
@@ -444,9 +354,9 @@ fn map_to_swift(
     types: &TypeCollection,
     map: &specta::datatype::Map,
 ) -> Result<String> {
-    let key_type = datatype_to_swift(swift, types, map.key_ty(), vec![], false, None)?;
-    let value_type = datatype_to_swift(swift, types, map.value_ty(), vec![], false, None)?;
-    Ok(format!("[{}: {}]", key_type, value_type))
+    crate::datatype::collections::map_to_swift(map, |ty| {
+        datatype_to_swift(swift, types, ty, vec![], false, None)
+    })
 }
 
 /// Convert struct types to Swift.
@@ -578,132 +488,7 @@ fn struct_to_swift(
     }
 }
 
-/// Generate raw value for string enum variants
-fn generate_raw_value(variant_name: &str, rename_all: Option<&str>) -> String {
-    match rename_all {
-        Some("lowercase") => variant_name.to_lowercase(),
-        Some("UPPERCASE") => variant_name.to_uppercase(),
-        Some("camelCase") => {
-            let mut chars = variant_name.chars();
-            match chars.next() {
-                None => String::new(),
-                Some(first) => first.to_lowercase().chain(chars).collect(),
-            }
-        }
-        Some("PascalCase") => {
-            let mut chars = variant_name.chars();
-            match chars.next() {
-                None => String::new(),
-                Some(first) => first.to_uppercase().chain(chars).collect(),
-            }
-        }
-        Some("snake_case") => variant_name
-            .chars()
-            .enumerate()
-            .flat_map(|(i, c)| {
-                if c.is_uppercase() && i > 0 {
-                    vec!['_', c.to_lowercase().next().unwrap()]
-                } else {
-                    vec![c.to_lowercase().next().unwrap()]
-                }
-            })
-            .collect(),
-        Some("SCREAMING_SNAKE_CASE") => variant_name
-            .chars()
-            .enumerate()
-            .flat_map(|(i, c)| {
-                if c.is_uppercase() && i > 0 {
-                    vec!['_', c.to_uppercase().next().unwrap()]
-                } else {
-                    vec![c.to_uppercase().next().unwrap()]
-                }
-            })
-            .collect(),
-        Some("kebab-case") => variant_name
-            .chars()
-            .enumerate()
-            .flat_map(|(i, c)| {
-                if c.is_uppercase() && i > 0 {
-                    vec!['-', c.to_lowercase().next().unwrap()]
-                } else {
-                    vec![c.to_lowercase().next().unwrap()]
-                }
-            })
-            .collect(),
-        Some("SCREAMING-KEBAB-CASE") => variant_name
-            .chars()
-            .enumerate()
-            .flat_map(|(i, c)| {
-                if c.is_uppercase() && i > 0 {
-                    vec!['-', c.to_uppercase().next().unwrap()]
-                } else {
-                    vec![c.to_uppercase().next().unwrap()]
-                }
-            })
-            .collect(),
-        _ => variant_name.to_lowercase(), // Default to lowercase
-    }
-}
-
-/// Check if an enum is the serde_json::Number enum
-fn is_serde_json_number_enum(e: &specta::datatype::Enum) -> bool {
-    // Check if this enum has the specific pattern of serde_json::Number:
-    // - Untagged representation
-    // - Exactly 3 variants: f64, i64, u64
-    // - Each variant has a single primitive field
-
-    // Check for untagged representation
-    if let Some(repr) = e.repr() {
-        match repr {
-            specta::datatype::EnumRepr::Untagged => {
-                // Continue with checking variants
-            }
-            _ => return false,
-        }
-    } else {
-        return false;
-    }
-
-    let variants: Vec<_> = e.variants().iter().collect();
-    if variants.len() == 3 {
-        let variant_names: Vec<&str> = variants.iter().map(|(name, _)| name.as_ref()).collect();
-        if variant_names.contains(&"f64")
-            && variant_names.contains(&"i64")
-            && variant_names.contains(&"u64")
-        {
-            // Check that each variant has the expected primitive type
-            for (name, variant) in variants {
-                if let specta::datatype::Fields::Unnamed(fields) = variant.fields() {
-                    if fields.fields().len() == 1 {
-                        if let Some(field) = fields.fields().first() {
-                            if let Some(DataType::Primitive(p)) = field.ty() {
-                                let expected_primitive = match name.as_ref() {
-                                    "f64" => specta::datatype::Primitive::f64,
-                                    "i64" => specta::datatype::Primitive::i64,
-                                    "u64" => specta::datatype::Primitive::u64,
-                                    _ => continue,
-                                };
-                                if *p != expected_primitive {
-                                    return false;
-                                }
-                            } else {
-                                return false;
-                            }
-                        } else {
-                            return false;
-                        }
-                    } else {
-                        return false;
-                    }
-                } else {
-                    return false;
-                }
-            }
-            return true;
-        }
-    }
-    false
-}
+// Function now imported from naming::rename_rules module
 
 /// Convert enum types to Swift.
 fn enum_to_swift(
@@ -915,19 +700,9 @@ fn tuple_to_swift(
     types: &TypeCollection,
     t: &specta::datatype::Tuple,
 ) -> Result<String> {
-    if t.elements().is_empty() {
-        Ok("Void".to_string())
-    } else if t.elements().len() == 1 {
-        datatype_to_swift(swift, types, &t.elements()[0], vec![], false, None)
-    } else {
-        let types_str = t
-            .elements()
-            .iter()
-            .map(|e| datatype_to_swift(swift, types, e, vec![], false, None))
-            .collect::<std::result::Result<Vec<_>, _>>()?
-            .join(", ");
-        Ok(format!("({})", types_str))
-    }
+    crate::datatype::collections::tuple_to_swift(t, |ty| {
+        datatype_to_swift(swift, types, ty, vec![], false, None)
+    })
 }
 
 /// Convert reference types to Swift.
@@ -936,31 +711,14 @@ fn reference_to_swift(
     types: &TypeCollection,
     r: &specta::datatype::Reference,
 ) -> Result<String> {
-    // Get the name from the TypeCollection using the SID
-    let name = if let Some(ndt) = types.get(r.sid()) {
-        swift.naming.convert(ndt.name())
-    } else {
-        return Err(Error::InvalidIdentifier(
-            "Reference to unknown type".to_string(),
-        ));
-    };
-
-    if r.generics().is_empty() {
-        Ok(name)
-    } else {
-        let generics = r
-            .generics()
-            .iter()
-            .map(|(_, t)| datatype_to_swift(swift, types, t, vec![], false, None))
-            .collect::<std::result::Result<Vec<_>, _>>()?
-            .join(", ");
-        Ok(format!("{}<{}>", name, generics))
-    }
+    crate::datatype::reference::reference_to_swift(swift, types, r, |ty| {
+        datatype_to_swift(swift, types, ty, vec![], false, None)
+    })
 }
 
 /// Convert generic types to Swift.
 fn generic_to_swift(_swift: &Swift, g: &specta::datatype::Generic) -> Result<String> {
-    Ok(g.to_string())
+    crate::datatype::generic::generic_to_swift(g)
 }
 
 /// Generate custom Codable implementation for enums with struct-like variants
@@ -1334,83 +1092,7 @@ fn generate_adjacently_tagged_codable(
     Ok(result)
 }
 
-/// Check if a DataType references the given SpectaID (for detecting recursive types)
-fn is_recursive_type_reference(
-    ty: &specta::datatype::DataType,
-    target_sid: specta::SpectaID,
-) -> bool {
-    match ty {
-        specta::datatype::DataType::Reference(reference) => reference.sid() == target_sid,
-        specta::datatype::DataType::Nullable(inner) => {
-            is_recursive_type_reference(inner, target_sid)
-        }
-        specta::datatype::DataType::List(list) => {
-            is_recursive_type_reference(list.ty(), target_sid)
-        }
-        specta::datatype::DataType::Map(map) => {
-            is_recursive_type_reference(map.key_ty(), target_sid)
-                || is_recursive_type_reference(map.value_ty(), target_sid)
-        }
-        specta::datatype::DataType::Struct(s) => match s.fields() {
-            specta::datatype::Fields::Named(fields) => fields.fields().iter().any(|(_, field)| {
-                if let Some(ty) = field.ty() {
-                    is_recursive_type_reference(ty, target_sid)
-                } else {
-                    false
-                }
-            }),
-            specta::datatype::Fields::Unnamed(fields) => fields.fields().iter().any(|field| {
-                if let Some(ty) = field.ty() {
-                    is_recursive_type_reference(ty, target_sid)
-                } else {
-                    false
-                }
-            }),
-            _ => false,
-        },
-        specta::datatype::DataType::Enum(e) => {
-            e.variants()
-                .iter()
-                .any(|(_, variant)| match variant.fields() {
-                    specta::datatype::Fields::Named(fields) => {
-                        fields.fields().iter().any(|(_, field)| {
-                            if let Some(ty) = field.ty() {
-                                is_recursive_type_reference(ty, target_sid)
-                            } else {
-                                false
-                            }
-                        })
-                    }
-                    specta::datatype::Fields::Unnamed(fields) => {
-                        fields.fields().iter().any(|field| {
-                            if let Some(ty) = field.ty() {
-                                is_recursive_type_reference(ty, target_sid)
-                            } else {
-                                false
-                            }
-                        })
-                    }
-                    _ => false,
-                })
-        }
-        _ => false,
-    }
-}
-
-/// Generate raw value for string enum variants
-fn generate_string_enum_raw_value(
-    variant_name: &str,
-    naming: crate::swift::NamingConvention,
-) -> String {
-    match naming {
-        crate::swift::NamingConvention::SnakeCase => variant_name
-            .chars()
-            .map(|c| if c.is_uppercase() { '_' } else { c })
-            .collect::<String>()
-            .to_lowercase(),
-        _ => variant_name.to_lowercase(), // Default to lowercase
-    }
-}
+// Functions now imported from naming::rename_rules module
 
 /// Generate struct definitions for enum variants with named fields
 fn generate_enum_variant_structs(

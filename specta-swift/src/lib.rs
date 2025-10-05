@@ -48,9 +48,17 @@
     html_favicon_url = "https://github.com/oscartbeaumont/specta/raw/main/.github/logo-128.png"
 )]
 
+// Core modules
 mod error;
 mod primitives;
 mod swift;
+
+// New modular architecture (public for testing and external use)
+pub mod codable;
+pub mod datatype;
+pub mod naming;
+pub mod special_types;
+pub mod utils;
 
 pub use error::Error;
 pub use swift::{
