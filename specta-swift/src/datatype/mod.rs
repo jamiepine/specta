@@ -16,12 +16,14 @@
 
 // Submodules
 pub mod collections;
+pub mod export;
 pub mod generic;
 pub mod primitives;
 pub mod reference;
 
 // Re-export commonly used functions
 pub use collections::{list_to_swift, map_to_swift, tuple_to_swift};
+pub use export::{datatype_to_swift, export_type_with_name};
 pub use generic::generic_to_swift;
 pub use primitives::{literal_to_swift, primitive_to_swift};
 pub use reference::reference_to_swift;

@@ -4,8 +4,9 @@ use std::{borrow::Cow, path::Path};
 
 use specta::TypeCollection;
 
+use crate::datatype::export::export_type_with_name;
 use crate::error::Result;
-use crate::primitives::{export_type_with_name, is_duration_struct};
+use crate::special_types::is_duration_struct;
 
 /// Swift language exporter.
 #[derive(Debug, Clone)]

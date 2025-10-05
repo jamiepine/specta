@@ -18,9 +18,15 @@
 //! - `CodingKeys` enum definitions
 //! - Custom encoding/decoding logic for complex types
 
-// Re-export public types from submodules once they're created
-// pub use struct_codable::*;
-// pub use enum_codable::*;
-// pub use adjacently_tagged::*;
-// pub use coding_keys::*;
+// Submodules
+pub mod adjacently_tagged;
+pub mod enum_codable;
+pub mod struct_codable;
 
+// Re-export commonly used functions
+pub use adjacently_tagged::generate_adjacently_tagged_codable;
+pub use enum_codable::generate_enum_codable_impl;
+pub use struct_codable::generate_enum_variant_structs;
+
+// Re-export public types from submodules once they're created
+// pub use coding_keys::*;

@@ -76,6 +76,50 @@ pub fn snake_to_pascal(s: &str) -> String {
     format!("{}{}", first, chars.collect::<String>())
 }
 
+/// Convert a string to PascalCase, returning as-is if already PascalCase.
+///
+/// This is useful for enum variant names that might already be in the correct format.
+///
+/// # Arguments
+///
+/// * `s` - The string to convert
+///
+/// # Returns
+///
+/// The PascalCase string
+///
+/// # Examples
+///
+/// ```rust
+/// # use specta_swift::naming::case_conversion::to_pascal_case;
+/// assert_eq!(to_pascal_case("hello_world"), "HelloWorld");
+/// assert_eq!(to_pascal_case("HelloWorld"), "HelloWorld"); // Already PascalCase
+/// assert_eq!(to_pascal_case("user_type"), "UserType");
+/// ```
+pub fn to_pascal_case(s: &str) -> String {
+    // If it's already PascalCase (starts with uppercase), return as-is
+    if s.chars().next().map_or(false, |c| c.is_uppercase()) {
+        return s.to_string();
+    }
+
+    // Otherwise, convert snake_case to PascalCase
+    let mut result = String::new();
+    let mut capitalize_next = true;
+
+    for c in s.chars() {
+        if c == '_' || c == '-' {
+            capitalize_next = true;
+        } else if capitalize_next {
+            result.push(c.to_uppercase().next().unwrap_or(c));
+            capitalize_next = false;
+        } else {
+            result.push(c.to_lowercase().next().unwrap_or(c));
+        }
+    }
+
+    result
+}
+
 /// Convert a camelCase or PascalCase string to snake_case.
 ///
 /// # Arguments

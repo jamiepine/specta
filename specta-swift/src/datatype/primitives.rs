@@ -35,6 +35,7 @@
 use specta::datatype::{Literal, Primitive};
 
 use crate::error::{Error, Result};
+use crate::utils::formatting::escape_string;
 
 /// Convert a Specta primitive type to its Swift equivalent.
 ///
@@ -145,8 +146,8 @@ pub fn literal_to_swift(literal: &Literal) -> Result<String> {
         Literal::bool(v) => v.to_string(),
 
         // String and character literals (need quotes)
-        Literal::String(s) => format!("\"{}\"", s.replace('\"', "\\\"")),
-        Literal::char(c) => format!("\"{}\"", c),
+        Literal::String(s) => format!("\"{}\"", escape_string(s)),
+        Literal::char(c) => format!("\"{}\"", c.to_string().replace('\"', "\\\"")),
 
         // None/null literal
         Literal::None => "nil".to_string(),

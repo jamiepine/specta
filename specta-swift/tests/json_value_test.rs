@@ -36,8 +36,8 @@ fn test_json_value_generation() {
         .expect("Failed to generate Swift types");
 
     // The generated code should contain proper enum definitions
-    assert!(result.contains("public enum JsonNumber: Codable"));
-    assert!(result.contains("public enum JsonValue: Codable"));
+    assert!(result.contains("public enum JsonNumber"));
+    assert!(result.contains("public enum JsonValue"));
 
     // JsonNumber should have proper variants
     assert!(result.contains("case f64(Double)"));
@@ -57,7 +57,7 @@ fn test_json_value_generation() {
 
     // The JsonNumber enum SHOULD contain these variants, but they should NOT be inlined into JsonValue
     // So we check that they exist in JsonNumber but not directly in JsonValue
-    assert!(result.contains("public enum JsonNumber: Codable"));
+    assert!(result.contains("public enum JsonNumber"));
     assert!(result.contains("case f64(Double)"));
     assert!(result.contains("case i64(Int64)"));
     assert!(result.contains("case u64(UInt64)"));

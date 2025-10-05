@@ -27,12 +27,13 @@
 // Submodules
 pub mod case_conversion;
 pub mod rename_rules;
+pub mod variant_naming;
 
 // Re-export commonly used functions
-pub use case_conversion::{snake_to_camel, snake_to_pascal, to_snake_case};
+pub use case_conversion::{snake_to_camel, snake_to_pascal, to_pascal_case, to_snake_case};
 pub use rename_rules::{generate_raw_value, generate_string_enum_raw_value};
+pub use variant_naming::generate_variant_struct_name;
 
 // Re-export public types from submodules once they're created
 // pub use strategies::*;
 // pub use resolver::*;
-

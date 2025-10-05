@@ -50,7 +50,6 @@
 
 // Core modules
 mod error;
-mod primitives;
 mod swift;
 
 // New modular architecture (public for testing and external use)
