@@ -71,4 +71,3 @@ where
 mod tests {
     // Integration tests verify reference resolution works correctly
 }
-

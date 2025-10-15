@@ -93,7 +93,7 @@ pub enum StructNamingStrategy {
 }
 
 /// Strategy for handling duplicate type names during export.
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Default)]
 pub enum DuplicateNameStrategy {
     /// Emit warnings but continue with last definition (default).
     /// This maintains backward compatibility while alerting users to potential issues.
@@ -217,8 +217,8 @@ impl Swift {
         }
 
         // Check if we need to inject JsonValue helper
-        if needs_JsonValue_helper(types) {
-            result.push_str(&generate_JsonValue_helper());
+        if needs_json_value_helper(types) {
+            result.push_str(&generate_json_value_helper());
         }
 
         // Export types - handle duplicates according to strategy
@@ -396,15 +396,15 @@ fn generate_duration_helper() -> String {
 }
 
 /// Check if a JsonValue type is the built-in serde_json::Value type
-fn is_builtin_JsonValue(ndt: &specta::datatype::NamedDataType) -> bool {
+fn is_builtin_json_value(ndt: &specta::datatype::NamedDataType) -> bool {
     // Consider it built-in if it's from serde_json crate OR from specta's legacy_impls
     ndt.module_path().contains("serde_json") || ndt.module_path().contains("legacy_impls")
 }
 
 /// Check if we need to generate the JsonValue helper
-fn needs_JsonValue_helper(types: &TypeCollection) -> bool {
+fn needs_json_value_helper(types: &TypeCollection) -> bool {
     for ndt in types.into_sorted_iter() {
-        if ndt.name() == "JsonValue" && is_builtin_JsonValue(&ndt) {
+        if ndt.name() == "JsonValue" && is_builtin_json_value(&ndt) {
             return true;
         }
         // Also check if any struct fields contain built-in JsonValue
@@ -415,7 +415,7 @@ fn needs_JsonValue_helper(types: &TypeCollection) -> bool {
                         if let specta::datatype::DataType::Reference(r) = ty {
                             if let Some(referenced_ndt) = types.get(r.sid()) {
                                 if referenced_ndt.name() == "JsonValue"
-                                    && is_builtin_JsonValue(referenced_ndt)
+                                    && is_builtin_json_value(referenced_ndt)
                                 {
                                     return true;
                                 }
@@ -430,7 +430,7 @@ fn needs_JsonValue_helper(types: &TypeCollection) -> bool {
 }
 
 /// Generate the JsonValue helper enum
-fn generate_JsonValue_helper() -> String {
+fn generate_json_value_helper() -> String {
     "// MARK: - JSON Value Helper\n".to_string()
         + "/// Helper enum to represent arbitrary JSON values\n"
         + "public indirect enum JsonValue: Codable {\n"
@@ -618,7 +618,9 @@ fn handle_duplicate_names(
 
     // Group types by name
     for ndt in types.into_sorted_iter() {
-        if ndt.name() == "JsonValue" && is_builtin_JsonValue(&ndt) && needs_JsonValue_helper(types)
+        if ndt.name() == "JsonValue"
+            && is_builtin_json_value(&ndt)
+            && needs_json_value_helper(types)
         {
             continue;
         }

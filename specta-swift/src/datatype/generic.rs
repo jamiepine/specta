@@ -35,4 +35,3 @@ pub fn generic_to_swift(generic: &specta::datatype::Generic) -> Result<String> {
 mod tests {
     // Simple pass-through function, verified through integration tests
 }
-

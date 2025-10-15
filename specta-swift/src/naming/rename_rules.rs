@@ -132,28 +132,46 @@ mod tests {
 
     #[test]
     fn test_lowercase() {
-        assert_eq!(generate_raw_value("MyVariant", Some("lowercase")), "myvariant");
+        assert_eq!(
+            generate_raw_value("MyVariant", Some("lowercase")),
+            "myvariant"
+        );
     }
 
     #[test]
     fn test_uppercase() {
-        assert_eq!(generate_raw_value("MyVariant", Some("UPPERCASE")), "MYVARIANT");
+        assert_eq!(
+            generate_raw_value("MyVariant", Some("UPPERCASE")),
+            "MYVARIANT"
+        );
     }
 
     #[test]
     fn test_camel_case() {
-        assert_eq!(generate_raw_value("MyVariant", Some("camelCase")), "myVariant");
+        assert_eq!(
+            generate_raw_value("MyVariant", Some("camelCase")),
+            "myVariant"
+        );
     }
 
     #[test]
     fn test_pascal_case() {
-        assert_eq!(generate_raw_value("MyVariant", Some("PascalCase")), "MyVariant");
+        assert_eq!(
+            generate_raw_value("MyVariant", Some("PascalCase")),
+            "MyVariant"
+        );
     }
 
     #[test]
     fn test_snake_case() {
-        assert_eq!(generate_raw_value("MyVariant", Some("snake_case")), "my_variant");
-        assert_eq!(generate_raw_value("APIResponse", Some("snake_case")), "api_response");
+        assert_eq!(
+            generate_raw_value("MyVariant", Some("snake_case")),
+            "my_variant"
+        );
+        assert_eq!(
+            generate_raw_value("APIResponse", Some("snake_case")),
+            "api_response"
+        );
     }
 
     #[test]
@@ -166,7 +184,10 @@ mod tests {
 
     #[test]
     fn test_kebab_case() {
-        assert_eq!(generate_raw_value("MyVariant", Some("kebab-case")), "my-variant");
+        assert_eq!(
+            generate_raw_value("MyVariant", Some("kebab-case")),
+            "my-variant"
+        );
     }
 
     #[test]
@@ -182,4 +203,3 @@ mod tests {
         assert_eq!(generate_raw_value("MyVariant", None), "myvariant");
     }
 }
-

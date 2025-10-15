@@ -31,10 +31,7 @@ use crate::swift::Swift;
 /// // Vec<Vec<i32>> → [[Int32]]
 /// // Vec<User> → [User]
 /// ```
-pub fn list_to_swift<F>(
-    list: &specta::datatype::List,
-    convert: F,
-) -> Result<String>
+pub fn list_to_swift<F>(list: &specta::datatype::List, convert: F) -> Result<String>
 where
     F: FnOnce(&specta::datatype::DataType) -> Result<String>,
 {
@@ -61,10 +58,7 @@ where
 /// // HashMap<String, i32> → [String: Int32]
 /// // HashMap<String, Vec<User>> → [String: [User]]
 /// ```
-pub fn map_to_swift<F>(
-    map: &specta::datatype::Map,
-    convert: F,
-) -> Result<String>
+pub fn map_to_swift<F>(map: &specta::datatype::Map, convert: F) -> Result<String>
 where
     F: Fn(&specta::datatype::DataType) -> Result<String>,
 {
@@ -94,10 +88,7 @@ where
 /// // (String, i32) → (String, Int32)
 /// // (String, i32, bool) → (String, Int32, Bool)
 /// ```
-pub fn tuple_to_swift<F>(
-    tuple: &specta::datatype::Tuple,
-    convert: F,
-) -> Result<String>
+pub fn tuple_to_swift<F>(tuple: &specta::datatype::Tuple, convert: F) -> Result<String>
 where
     F: Fn(&specta::datatype::DataType) -> Result<String>,
 {
@@ -122,4 +113,3 @@ mod tests {
     // Integration tests verify these work correctly with actual types
     // Unit tests would require mocking the datatype_to_swift function
 }
-

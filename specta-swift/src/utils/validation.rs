@@ -110,4 +110,3 @@ mod tests {
         // Would test that non-recursive types return false
     }
 }
-

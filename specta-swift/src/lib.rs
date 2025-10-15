@@ -43,6 +43,7 @@
 //!
 //! If you get tired of listing all your types, checkout [`specta::export`].
 #![cfg_attr(docsrs, feature(doc_cfg))]
+#![allow(dead_code)]
 #![doc(
     html_logo_url = "https://github.com/oscartbeaumont/specta/raw/main/.github/logo-128.png",
     html_favicon_url = "https://github.com/oscartbeaumont/specta/raw/main/.github/logo-128.png"

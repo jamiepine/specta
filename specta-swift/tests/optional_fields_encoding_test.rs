@@ -155,4 +155,3 @@ fn test_documents_expected_behavior() {
     println!("      try container.encodeIfPresent(status, forKey: .status)  // omits nil!");
     println!("  }}");
 }
-

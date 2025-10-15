@@ -29,4 +29,3 @@ fn test_tuple_variant_json_format() {
     let _deserialized: TestEnum = serde_json::from_str(&json).unwrap();
     println!("✅ Deserialization works!");
 }
-
